@@ -5,10 +5,7 @@ from flask import Flask, request, Response
 from twilio.twiml.voice_response import VoiceResponse, Gather
 from openai import OpenAI
 
-TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_PHONE = "+18557893570"
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 PORT = int(os.environ.get("PORT", 5000))
 HOST = "0.0.0.0"
@@ -31,15 +28,14 @@ Keep responses SHORT for phone calls - max 3 sentences. Sound natural, like talk
 
 conversations = {}
 app = Flask(__name__)
-openai_client = None
 
-def init_clients():
-    global openai_client
-    if OPENAI_API_KEY:
-        openai_client = OpenAI(api_key=OPENAI_API_KEY)
-        print("  OK OpenAI connected")
-    else:
-        print("  NO OpenAI key")
+# Initialize OpenAI client at MODULE level so gunicorn picks it up
+openai_client = None
+if OPENAI_API_KEY:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    print("  OK OpenAI connected")
+else:
+    print("  NO OpenAI key - brain disconnected")
 
 def get_ai_response(caller_id, user_text):
     if not openai_client:
@@ -63,7 +59,7 @@ def get_ai_response(caller_id, user_text):
         return assistant_text
     except Exception as e:
         print(f"  ERROR OpenAI: {e}")
-        return "Perdon, tuve un problemita conectandome. Intenta de nuevo."
+        return "Perdon, tuve un problemita. Intenta de nuevo."
 
 @app.route("/voice/incoming", methods=["POST"])
 def incoming_call():
@@ -72,7 +68,6 @@ def incoming_call():
     response = VoiceResponse()
     response.say("Hola! Aqui GPTitta, tu asistente de Tenku Designs. Como te puedo ayudar?", voice="Polly.Mia", language="es-US")
     gather = Gather(input="speech", action="/voice/respond", method="POST", language="es-US", speech_timeout="auto", timeout=10, hints="Tenku,GPTitta,Fabiola,hola,si,no")
-    gather.say("", voice="Polly.Mia", language="es-US")
     response.append(gather)
     response.say("No te escuche. Intenta de nuevo.", voice="Polly.Mia", language="es-US")
     response.redirect("/voice/incoming")
@@ -101,20 +96,18 @@ def respond_to_speech():
 @app.route("/voice/status", methods=["POST"])
 def call_status():
     status = request.form.get("CallStatus", "unknown")
-    caller = request.form.get("From", "unknown")
-    print(f"  STATUS: {status} from {caller}")
+    print(f"  STATUS: {status}")
     return "", 200
 
 @app.route("/health", methods=["GET"])
 def health():
-    return json.dumps({"status": "alive", "service": "GPTitta Voice Bot", "terminal": "v4.5", "brain": "OpenAI GPT" if openai_client else "disconnected"}), 200
+    return json.dumps({"status": "alive", "service": "GPTitta Voice Bot", "terminal": "v4.6", "brain": "OpenAI GPT" if openai_client else "disconnected"}), 200
 
 @app.route("/", methods=["GET"])
 def home():
-    return "<h1>GPTitta Voice Bot</h1><p>Terminal v4.5 | Tenku Designs | RUNNING</p><p>Call +1 855 789 3570</p><p><a href='/health'>Health Check</a></p>", 200
+    return "<h1>GPTitta Voice Bot</h1><p>Terminal v4.6 | Tenku Designs | RUNNING</p><p>Call +1 855 789 3570</p><p><a href='/health'>Health Check</a></p>", 200
 
 if __name__ == "__main__":
     print("GPTitta Voice Bot starting...")
-    init_clients()
     print(f"  Port: {PORT}")
     app.run(host=HOST, port=PORT, debug=False)
