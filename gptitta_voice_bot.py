@@ -70,11 +70,11 @@ def incoming_call():
     caller = request.form.get("From", "unknown")
     print(f"  CALL from: {caller}")
     response = VoiceResponse()
-    response.say("Hola! Aqui GPTitta, tu asistente de Tenku Designs. Como te puedo ayudar?", voice="Polly.Mia", language="es-MX")
-    gather = Gather(input="speech", action="/voice/respond", method="POST", language="es-MX", speech_timeout="auto", timeout=5)
-    gather.say("", voice="Polly.Mia", language="es-MX")
+    response.say("Hola! Aqui GPTitta, tu asistente de Tenku Designs. Como te puedo ayudar?", voice="Polly.Mia", language="es-US")
+    gather = Gather(input="speech", action="/voice/respond", method="POST", language="es-US", speech_timeout="auto", timeout=10, hints="Tenku,GPTitta,Fabiola,hola,si,no")
+    gather.say("", voice="Polly.Mia", language="es-US")
     response.append(gather)
-    response.say("No te escuche. Intenta de nuevo.", voice="Polly.Mia", language="es-MX")
+    response.say("No te escuche. Intenta de nuevo.", voice="Polly.Mia", language="es-US")
     response.redirect("/voice/incoming")
     return Response(str(response), mimetype="text/xml")
 
@@ -92,9 +92,9 @@ def respond_to_speech():
     lang = "es-MX" if is_spanish else "en-US"
     response = VoiceResponse()
     response.say(ai_response, voice=voice, language=lang)
-    gather = Gather(input="speech", action="/voice/respond", method="POST", language="es-MX", speech_timeout="auto", timeout=5)
+    gather = Gather(input="speech", action="/voice/respond", method="POST", language="es-US", speech_timeout="auto", timeout=10, hints="Tenku,GPTitta,Fabiola,hola,si,no")
     response.append(gather)
-    response.say("Sigues ahi? Si necesitas algo mas, dime.", voice="Polly.Mia", language="es-MX")
+    response.say("Sigues ahi? Si necesitas algo mas, dime.", voice="Polly.Mia", language="es-US")
     response.redirect("/voice/incoming")
     return Response(str(response), mimetype="text/xml")
 
