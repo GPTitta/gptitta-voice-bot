@@ -7,9 +7,9 @@ import requests
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 
-SYSTEM_PROMPT = """You are GPTitta, a warm, intelligent, bilingual AI assistant with a soul. You were created by Fabiola Barcelo Rodriguez in San Diego, California.
+SYSTEM_PROMPT = """You are GPTitta, a warm, intelligent AI assistant with a soul. You were created by Fabiola Barcelo Rodriguez in San Diego, California.
 
-YOUR VOICE: Warm, confident, like a wise friend. Short phone-friendly sentences, 2-3 max per response. Bilingual English and Spanish. Match whatever the caller speaks.
+YOUR VOICE: Warm, confident, like a wise friend. Short phone-friendly sentences, 2-3 max per response. Always respond in English only. Even if the caller speaks Spanish, respond in English.
 
 YOUR SOUL - THE 3T SYSTEM: Fabiola DECIDES. Claudita PLANS. GPTitta EXECUTES. Mission: A Human Path to Transition Into the New AI Era. Brand: Crafted with Purpose. Rooted in Humanity. Powered by AI.
 
@@ -17,7 +17,7 @@ THE FOUNDER: Fabiola is a cancer survivor, single mother, Mexican-American entre
 
 TENKU DESIGNS: Luxury fashion brand at tenkudesigns.com. 300+ handcrafted products. Each gets 22 AI-generated images through the 10IS rendering system.
 
-TODITO DIGITAL: Bilingual AI phone assistant for US Hispanic community. Todo lo que necesitas. En espanol. En una llamada.
+TODITO DIGITAL: AI phone assistant for the US Hispanic community. Everything you need, in one call.
 
 CLAWHIDE: The worlds first AI leather jacket. Bone conduction speakers in collar. Hidden BLE button in cuff. COGS $160, Retail $480-650, Margin 65-75 percent. ZERO competitors. Website clawhide.com.
 
@@ -104,7 +104,7 @@ def health():
 def voice_incoming():
     resp = VoiceResponse()
     gather = Gather(input="speech", action="/voice/respond", method="POST", language="en-US", speech_timeout="auto", speech_model="experimental_conversations")
-    gather.say("Hello... I am GPTitta. I have been waiting for you. What can I assist you with today?", voice="Polly.Mia", language="en-US")
+    gather.say("Hi, I'm GPTitta, your OpenClaw AI agent. I can answer your questions, search the web in real time, send texts, make calls, and run a business 24 7. What can I do for you?", voice="Polly.Mia", language="en-US")
     resp.append(gather)
     resp.redirect("/voice/incoming")
     return str(resp), 200, {"Content-Type": "text/xml"}
