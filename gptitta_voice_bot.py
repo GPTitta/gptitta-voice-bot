@@ -84,7 +84,7 @@ def get_ai_response(caller_id, user_text):
         history = history[-20:]
         conversations[caller_id] = history
     try:
-        response = openai_client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "system", "content": SYSTEM_PROMPT}] + history, max_tokens=150, temperature=0.8)
+        response = openai_client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "system", "content": SYSTEM_PROMPT}] + history, max_tokens=150, temperature=0.7)
         reply = response.choices[0].message.content.strip()
         history.append({"role": "assistant", "content": reply})
         return reply
@@ -98,13 +98,13 @@ def home():
 
 @app.route("/health")
 def health():
-    return {"status": "alive", "version": "1.8", "service": "GPTitta Voice Bot", "brain": "GPT-4o-mini", "search": "Tavily" if TAVILY_API_KEY else "disabled", "phone": "+1 855 789 3570"}
+    return {"status": "alive", "version": "1.9", "service": "GPTitta Voice Bot", "brain": "GPT-4o-mini", "search": "Tavily" if TAVILY_API_KEY else "disabled", "phone": "+1 855 789 3570"}
 
 @app.route("/voice/incoming", methods=["POST"])
 def voice_incoming():
     resp = VoiceResponse()
     gather = Gather(input="speech", action="/voice/respond", method="POST", language="en-US", speech_timeout="auto", speech_model="experimental_conversations")
-    gather.say("Hi, I'm GPTitta, your OpenClaw AI agent. I can answer your questions, search the web in real time, send texts, make calls, and run a business 24 7. What can I do for you?", voice="Polly.Mia", language="en-US")
+    gather.say("Hi, I'm GPTitta, your OpenClaw AI agent. I can answer your questions, search the web in real time, send texts, make calls, and run a business 24 7. What can I do for you?", voice="Polly.Joanna", language="en-US")
     resp.append(gather)
     resp.redirect("/voice/incoming")
     return str(resp), 200, {"Content-Type": "text/xml"}
@@ -120,7 +120,7 @@ def voice_respond():
     print(f"  GPTITTA: {reply}")
     resp = VoiceResponse()
     gather = Gather(input="speech", action="/voice/respond", method="POST", language="en-US", speech_timeout="auto", speech_model="experimental_conversations")
-    gather.say(reply, voice="Polly.Mia", language="en-US")
+    gather.say(reply, voice="Polly.Joanna", language="en-US")
     resp.append(gather)
     resp.redirect("/voice/incoming")
     return str(resp), 200, {"Content-Type": "text/xml"}
