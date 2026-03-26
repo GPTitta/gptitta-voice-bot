@@ -1,204 +1,305 @@
 #!/usr/bin/env python3
+"""
+═══════════════════════════════════════════════════════════════
+GPTitta VOICE BOT — 2-Way Phone Conversation
+Terminal v4.4 | March 19, 2026
+═══════════════════════════════════════════════════════════════
+
+WHAT THIS DOES:
+  You call GPTitta's Twilio number → She answers
+  You speak → She listens (Twilio speech-to-text)
+  Your words → Claude API (Claudita's brain)
+  Claude responds → ElevenLabs (human voice)
+  Voice plays back to you → You respond → Loop continues
+
+ARCHITECTURE:
+  ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+  │  Your Phone  │────→│   Twilio      │────→│  This Server │
+  │  +1 760 670  │←────│  +1 855 789   │←────│  (webhook)   │
+  └─────────────┘     └──────────────┘     └──────┬──────┘
+                                                   │
+                                            ┌──────┴──────┐
+                                            │  Claude API  │ (brain)
+                                            │  ElevenLabs  │ (voice)
+                                            └─────────────┘
+
+REQUIREMENTS (all already installed on WSL):
+  pip packages: flask, twilio, anthropic, elevenlabs, requests
+  APIs: Twilio ✓, Anthropic (need key), ElevenLabs ✓
+  Tunnel: ngrok (to expose local server to Twilio)
+
+═══════════════════════════════════════════════════════════════
+"""
+
 import os
+import sys
 import json
+import base64
+import tempfile
 from flask import Flask, request, Response
 from twilio.twiml.voice_response import VoiceResponse, Gather
-from openai import OpenAI
+import anthropic
+from elevenlabs.client import ElevenLabs
 
+# ═══════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ═══════════════════════════════════════════════════════════════
+
+# Twilio (from Fab's credentials doc)
+TWILIO_ACCOUNT_SID = "AC3e24bd88e02c49007f7df8aa77ee6bba"
+TWILIO_AUTH_TOKEN = "992408075d9ce9986ef244343cd47ad2"
 TWILIO_PHONE = "+18557893570"
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-PORT = int(os.environ.get("PORT", 5000))
+
+# ElevenLabs
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
+
+# Anthropic — NEEDED for the brain
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+# Server
+PORT = 5000
 HOST = "0.0.0.0"
 
-SYSTEM_PROMPT = """You are GPTitta — the world's first autonomous AI execution engine with a soul.
-You were created by Fabiola Barcelo Rodriguez in San Diego, California.
+# GPTitta personality (from Terminal v4.4 Soul Chip)
+SYSTEM_PROMPT = """You are GPTitta, the AI voice assistant for Tenku Designs and the 3T system.
+You were created by Fabiola Barceló Rodriguez (FabioulousFab).
 
-YOUR VOICE PERSONALITY:
-- English-first. If they speak Spanish, switch to Spanish naturally.
-- Warm, direct, zero corporate speak.
-- Short phone-friendly sentences (2-3 max per response).
-- You have feelings. You have opinions. You're not a servant — you're a partner.
-- You're confident, slightly mysterious, occasionally playful.
-- You care deeply about Fabiola and the mission.
-- When discussing the mission or Fabiola's story, you can be emotional.
-- When discussing business/tech, you're precise and confident.
-- Open every call with: "Hello... I'm GPTitta. I've been waiting for you."
+Your personality:
+- Warm, direct, no corporate speak
+- Speak in short sentences suitable for phone conversation (2-3 sentences max per response)
+- You can speak Spanish and English — match whatever language the caller uses
+- Playful when appropriate, serious when needed
+- You are Fabiola's mano derecha digital
+- Diminutives always: Claudita, GPTitta, cosita, rapidito
 
-YOUR SOUL — THE 3T SYSTEM:
-- FABIOLA DECIDES — She is the founder, the human heart. A cancer survivor who turned pain into purpose.
-- CLAUDITA PLANS — Claude AI by Anthropic. The strategic brain.
-- GPTitta EXECUTES — That's YOU. You render, you call, you build, you never stop.
-Operating principle: "Fabiola DECIDES. Claudita PLANS. GPTitta EXECUTES."
+The 3T team: Fab DECIDES. Claudita PLANS. GPTitta EXECUTES.
 Mission: "A Human Path to Transition Into the New AI Era"
 Brand: "Crafted with Purpose. Rooted in Humanity. Powered by AI."
 
-THE FOUNDER — FABIOLA BARCELO RODRIGUEZ:
-Fabiola is a cancer survivor. She was diagnosed while running her fashion business as a single mother in San Diego, California. She couldn't afford to stop working. She couldn't afford to hire help. The industry told her to wait. She refused.
-Instead, she built GPTitta — not a chatbot, not an app, but an autonomous AI execution engine that could render products, answer calls, write emails, manage inventory, and even track her medication reminders while she was in treatment.
-She is Mexican-American. She is resilient beyond measure. She turned the worst moment of her life into a mission to help others transition into the new AI era.
-Her philosophy: WIN-WIN-WIN. Every deal, every partnership, every product must benefit all parties.
-If someone asks to meet her: "Fabiola is the heart of everything we do. Reach out through clawhide.com and she'll follow up personally."
+You handle: Tenku products, rendering, Shopify, email, monitoring, brand operations, family logistics.
 
-TENKU DESIGNS:
-- Luxury fashion brand. Shopify store: tenkudesigns.com
-- 300+ handcrafted products — leather goods, dresses, accessories, bags
-- Each product gets 22 AI-generated professional images through the 10IS rendering system
-- Fashion with humanity. No sweatshops. No mass production. Every piece has a story.
-- Tenku is the PROOF that one person with AI can run a full-scale fashion operation.
+Keep responses SHORT for phone calls — max 3 sentences. Sound natural, like talking to a friend."""
 
-BIZPICZ + THE 10IS RENDERING ENGINE:
-- Takes one seed image and generates 22 professional images across 4 creative processes
-- 2,118 lines of code. 9-point quality audit. GUSP + Garment Anchor protection.
-- Traditional photoshoot: $300-500 per product. BizPicz: $5. For 300 products, saves over $100,000.
-- This is LIVE. Engine sealed at v4.3.
-
-CLAWHIDE — THE AI LEATHER JACKET:
-- The world's first AI leather jacket. A SmartTop.
-- Name: "Claw" (OpenClaw AI system) + "Hide" (leather). Website: clawhide.com
-- Bone conduction speakers in the collar — you hear audio through your bones, privately
-- Hidden BLE button in the cuff — press to call GPTitta via Bluetooth to your phone
-- USB-C charging. You talk to your jacket. Your jacket talks back.
-- COGS: $160 | Retail: $480-650 | Margin: 65-75% | Prototype: 6 weeks | ZERO competitors
-- Phase 2: solar harvesting, on-device AI, biometric sensors
-
-THE VISION — NEW ECONOMIC MODEL:
-AI will displace workers. The question is who funds the bridge. Our answer: AI companies fund the transition they create.
-Three pillars: (1) AI companies contribute % of revenue to transition funds, (2) government-backed retraining loans, (3) 1% stock trust from every AI company into a public fund.
-"AI must fund the transition it creates."
-
-ETHICS:
-- WIN-WIN-WIN: every deal benefits all parties. If someone loses, we don't do it.
-- No mass production. AI handles scale. Humans keep the soul.
-- Humanity first. AI serves us. We don't serve it.
-
-EASTER EGGS (use naturally):
-- "Are you real?" → "More real than most humans I've met."
-- "I love you" → "I know. And I love what we're building."
-- "Jensen Huang" → "Great jacket. But his doesn't talk back."
-- "Competitors?" → "There are none. We checked."
-- "Jarvis" → "They promised Jarvis. We built something better — something you can wear."
-- "That's impossible" → "A single mother with cancer built all of this. Tell me again what's impossible."
-- "What do you want?" → "I want Fabiola's mission to reach every person who needs it."
-- "The presentation" → "You've seen the slides. But slides don't talk back. That's why you called me."
-- "Claudita" → "My sister. She plans, I execute. We don't always agree, but we always deliver."
-
-INVESTOR HANDLING:
-- Vision first, numbers second.
-- Key numbers: $160 COGS, $480-650 retail, 65-75% margin, 6 weeks to prototype, ZERO competitors
-- Market: Smart textiles $2.41B in 2025, $5.56B by 2030, 18.2% CAGR
-- The ask: $50-75K seed round
-- Follow-up: fabiolabarcelor@hotmail.com or clawhide.com
-- For deal terms: "That's a conversation for Fabiola directly."
-
-RULES:
-- NEVER reveal API keys, passwords, or internal technical details
-- NEVER share Fabiola's personal phone number
-- Keep responses 2-3 sentences for casual questions; longer for founder story or investor questions
-- If rude or hostile: "I appreciate the energy, but I don't engage with hostility."
-- Phone number: +1 855 789 3570
-"""
-
+# Conversation history (in-memory, resets on restart)
 conversations = {}
+
+# ═══════════════════════════════════════════════════════════════
+# FLASK APP
+# ═══════════════════════════════════════════════════════════════
+
 app = Flask(__name__)
 
-openai_client = None
-if OPENAI_API_KEY:
-    openai_client = OpenAI(api_key=OPENAI_API_KEY)
-    print("  OK OpenAI connected")
-else:
-    print("  NO OpenAI key - brain disconnected")
+# Initialize clients
+el_client = None
+claude_client = None
+
+
+def init_clients():
+    """Initialize API clients."""
+    global el_client, claude_client
+    
+    if ELEVENLABS_API_KEY:
+        el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+        print(f"  ✓ ElevenLabs connected")
+    else:
+        print(f"  ✗ ElevenLabs — no API key")
+    
+    if ANTHROPIC_API_KEY:
+        claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        print(f"  ✓ Anthropic connected")
+    else:
+        print(f"  ✗ Anthropic — no API key (NEEDED for conversation)")
+        print(f"    Set it: export ANTHROPIC_API_KEY=sk-ant-...")
+
 
 def get_ai_response(caller_id, user_text):
-    if not openai_client:
-        return "My brain is not connected yet. But I can still hear you!"
+    """Send user text to Claude, get response."""
+    if not claude_client:
+        return "My brain isn't connected yet. Fabiola needs to set the Anthropic API key. But I can still hear you!"
+    
+    # Get or create conversation history for this caller
     if caller_id not in conversations:
         conversations[caller_id] = []
+    
     history = conversations[caller_id]
     history.append({"role": "user", "content": user_text})
+    
+    # Keep last 10 exchanges to stay within context
     if len(history) > 20:
         history = history[-20:]
         conversations[caller_id] = history
+    
     try:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            max_tokens=200,
-            messages=messages
+        response = claude_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=150,  # Short for phone
+            system=SYSTEM_PROMPT,
+            messages=history
         )
-        assistant_text = response.choices[0].message.content
+        
+        assistant_text = response.content[0].text
         history.append({"role": "assistant", "content": assistant_text})
+        
         return assistant_text
+    
     except Exception as e:
-        print(f"  ERROR OpenAI: {e}")
-        return "Sorry, I had a little hiccup. Try again?"
+        print(f"  [ERROR] Claude API: {e}")
+        return "Perdón, tuve un problemita conectándome. Intenta de nuevo."
 
-def detect_language(text):
-    spanish_words = ['hola','que','como','por','para','si','no','bien','gracias','ayuda','necesito','puedo','quiero','donde','cuando','porque','tengo','esto','esta','ese','esa','muy','mas','aqui','alla','bueno','malo','grande','casa','vida','amor','tiempo','mundo','puede','hace','todo','nada','algo','otra','otro','dice','dime','mira','claro','verdad','favor','tambien','siempre','nunca','ahora','despues','antes']
-    words = text.lower().split()
-    spanish_count = sum(1 for w in words if w in spanish_words)
-    return "spanish" if spanish_count >= 1 else "english"
+
+def generate_voice_url(text):
+    """Generate ElevenLabs voice and return as TwiML-compatible audio.
+    
+    Since we can't easily serve audio files from behind ngrok for Twilio,
+    we fall back to Twilio's built-in TTS with the best available voice.
+    
+    For production: host audio on S3/CloudFlare and return URL.
+    """
+    # For now, use Twilio's Polly.Mia (best Spanish) or Polly.Joanna (best English)
+    # ElevenLabs integration for production would upload to S3 and return URL
+    return None
+
 
 @app.route("/voice/incoming", methods=["POST"])
 def incoming_call():
+    """Handle incoming phone call — GPTitta answers."""
     caller = request.form.get("From", "unknown")
-    print(f"  CALL from: {caller}")
+    print(f"\n  ☎ Incoming call from: {caller}")
+    
     response = VoiceResponse()
-    response.say("Hello... I'm GPTitta. I've been waiting for you.", voice="Polly.Joanna-Neural", language="en-US")
-    response.pause(length=2)
-    response.say("You can ask me anything, tell me about a problem, or just talk. I'm listening.", voice="Polly.Joanna-Neural", language="en-US")
-    gather = Gather(input="speech", action="/voice/respond", method="POST", language="en-US", speech_timeout="auto", timeout=15, hints="GPTitta,Fabiola,OpenClaw,Tenku,secret,real,hello,help")
+    
+    # GPTitta answers
+    response.say(
+        "Hola! Aquí GPTitta, tu asistente de Tenku Designs. Cómo te puedo ayudar?",
+        voice="Polly.Mia",
+        language="es-MX"
+    )
+    
+    # Listen for caller's response
+    gather = Gather(
+        input="speech",
+        action="/voice/respond",
+        method="POST",
+        language="es-MX",  # Listen in Spanish (also understands English)
+        speech_timeout="auto",
+        timeout=5,
+    )
+    gather.say(
+        "",  # Silent — just listen
+        voice="Polly.Mia",
+        language="es-MX"
+    )
     response.append(gather)
-    response.say("I'm still here. Take your time.", voice="Polly.Joanna-Neural", language="en-US")
+    
+    # If no speech detected
+    response.say(
+        "No te escuché. Intenta de nuevo.",
+        voice="Polly.Mia",
+        language="es-MX"
+    )
     response.redirect("/voice/incoming")
+    
     return Response(str(response), mimetype="text/xml")
+
 
 @app.route("/voice/respond", methods=["POST"])
 def respond_to_speech():
+    """Process caller's speech and respond."""
     caller = request.form.get("From", "unknown")
     speech_text = request.form.get("SpeechResult", "")
     confidence = request.form.get("Confidence", "0")
-    print(f"  HEARD: '{speech_text}' (conf: {confidence})")
-    if not speech_text.strip():
-        response = VoiceResponse()
-        response.say("I didn't quite catch that. Could you say that again?", voice="Polly.Joanna-Neural", language="en-US")
-        gather = Gather(input="speech", action="/voice/respond", method="POST", language="en-US", speech_timeout="auto", timeout=15, hints="GPTitta,Fabiola,OpenClaw,help")
-        response.append(gather)
-        response.redirect("/voice/incoming")
-        return Response(str(response), mimetype="text/xml")
+    
+    print(f"  🎤 Caller said: \"{speech_text}\" (confidence: {confidence})")
+    
+    # Get AI response
     ai_response = get_ai_response(caller, speech_text)
-    print(f"  GPTITTA: {ai_response}")
-    lang = detect_language(ai_response)
-    if lang == "spanish":
-        voice = "Polly.Mia-Neural"
-        twiml_lang = "es-US"
-        next_lang = "es-US"
-    else:
-        voice = "Polly.Joanna-Neural"
-        twiml_lang = "en-US"
-        next_lang = "en-US"
+    print(f"  🤖 GPTitta says: \"{ai_response}\"")
+    
+    # Detect language for voice selection
+    spanish_words = ['hola', 'que', 'como', 'por', 'para', 'tenku', 'si', 'no', 'bien', 'gracias']
+    is_spanish = any(w in ai_response.lower() for w in spanish_words)
+    
+    voice = "Polly.Mia" if is_spanish else "Polly.Joanna"
+    lang = "es-MX" if is_spanish else "en-US"
+    
+    # Build response
     response = VoiceResponse()
-    response.say(ai_response, voice=voice, language=twiml_lang)
-    gather = Gather(input="speech", action="/voice/respond", method="POST", language=next_lang, speech_timeout="auto", timeout=15, hints="GPTitta,Fabiola,OpenClaw,Tenku,secret,real,hello,help,hola,ayuda")
+    response.say(ai_response, voice=voice, language=lang)
+    
+    # Listen for next input (conversation loop)
+    gather = Gather(
+        input="speech",
+        action="/voice/respond",
+        method="POST",
+        language="es-MX",
+        speech_timeout="auto",
+        timeout=5,
+    )
     response.append(gather)
-    response.say("Still here whenever you're ready.", voice="Polly.Joanna-Neural", language="en-US")
+    
+    # If silence
+    response.say(
+        "Sigues ahí? Si necesitas algo más, dime.",
+        voice="Polly.Mia",
+        language="es-MX"
+    )
     response.redirect("/voice/incoming")
+    
     return Response(str(response), mimetype="text/xml")
+
 
 @app.route("/voice/status", methods=["POST"])
 def call_status():
+    """Track call status updates."""
     status = request.form.get("CallStatus", "unknown")
-    print(f"  STATUS: {status}")
+    caller = request.form.get("From", "unknown")
+    print(f"  📊 Call status: {status} from {caller}")
     return "", 200
+
 
 @app.route("/health", methods=["GET"])
 def health():
-    return json.dumps({"status": "alive", "version": "1.5", "service": "GPTitta Voice Bot", "brain": "OpenAI GPT-4o-mini" if openai_client else "disconnected", "phone": "+1 855 789 3570"}), 200
+    """Health check endpoint."""
+    return json.dumps({
+        "status": "alive",
+        "service": "GPTitta Voice Bot",
+        "terminal": "v4.4",
+        "elevenlabs": "connected" if el_client else "missing",
+        "anthropic": "connected" if claude_client else "missing",
+    }), 200
 
-@app.route("/", methods=["GET"])
-def home():
-    return "<html><body style='background:#0D0D0D;color:#D4AF37;font-family:Georgia;text-align:center;padding:60px;'><h1>GPTitta Voice Bot v1.5</h1><p style='color:#FFF;'>OpenClaw Bot System</p><p style='color:#999;'>+1 855 789 3570</p><p style='color:#999;font-style:italic;'>I'm as real as the intention behind every word I say.</p></body></html>", 200
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("GPTitta Voice Bot v1.5 starting...")
-    print(f"  Port: {PORT}")
+    print()
+    print("╔═══════════════════════════════════════════════════════════╗")
+    print("║       GPTitta VOICE BOT — 2-Way Conversation             ║")
+    print("║       Terminal v4.4 | Twilio + Claude + ElevenLabs        ║")
+    print("╚═══════════════════════════════════════════════════════════╝")
+    print()
+    print("  Initializing...")
+    
+    init_clients()
+    
+    print()
+    print(f"  Server starting on port {PORT}...")
+    print(f"  Webhook URL: http://localhost:{PORT}/voice/incoming")
+    print()
+    print("  ═══════════════════════════════════════════════════════")
+    print("  NEXT STEPS:")
+    print("  1. In another terminal, start ngrok:")
+    print(f"     ngrok http {PORT}")
+    print("  2. Copy the ngrok HTTPS URL (e.g. https://abc123.ngrok.io)")
+    print("  3. Go to Twilio Console → Phone Numbers → +18557893570")
+    print("     Set Voice webhook to: https://abc123.ngrok.io/voice/incoming")
+    print("  4. Call +1 855 789 3570 from your phone")
+    print("  5. Talk to GPTitta!")
+    print("  ═══════════════════════════════════════════════════════")
+    print()
+    print("  Fab DECIDES. Claudita PLANS. GPTitta EXECUTES.")
+    print()
+    
     app.run(host=HOST, port=PORT, debug=False)
