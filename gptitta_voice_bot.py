@@ -168,7 +168,7 @@ def home():
 
 @app.route("/health")
 def health():
-    return {"status": "alive", "version": "1.9.1", "service": "GPTitta Voice Bot", "brain": "GPT-4o-mini", "search": "Tavily" if TAVILY_API_KEY else "off", "sms": "Twilio" if twilio_client else "off", "email": "SendGrid" if SENDGRID_API_KEY else "SMS-fallback", "phone": "+1 855 789 3570"}
+    return {"status": "alive", "version": "1.9.2", "service": "GPTitta Voice Bot", "brain": "GPT-4o-mini", "search": "Tavily" if TAVILY_API_KEY else "off", "sms": "Twilio" if twilio_client else "off", "email": "SendGrid" if SENDGRID_API_KEY else "SMS-fallback", "phone": "+1 855 789 3570"}
 
 @app.route("/voice/incoming", methods=["POST"])
 def voice_incoming():
@@ -192,7 +192,7 @@ def voice_respond():
     gather = Gather(input="speech", action="/voice/respond", method="POST", language="en-US", speech_timeout="auto", speech_model="experimental_conversations")
     gather.say(reply, voice="Polly.Mia", language="en-US")
     resp.append(gather)
-    resp.redirect("/voice/incoming")
+    resp.redirect("/voice/respond")
     return str(resp), 200, {"Content-Type": "text/xml"}
 
 @app.route("/voice/status", methods=["POST"])
