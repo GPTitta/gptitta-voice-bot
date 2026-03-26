@@ -146,7 +146,9 @@ def get_ai_response(caller_id, user_text):
             search_context = chr(10) + "[WEB RESULTS: " + results + " Use these to answer naturally.]"
             last_search_results[caller_id] = results
             print("  SEARCH results found")
-    history.append({"role": "user", "content": user_text + search_context})
+    # Add caller context so GPTitta knows the number
+    caller_context = f" [SYSTEM NOTE: The caller phone number is {caller_id}. You already have it. If they ask you to text them, use [SEND_SMS: message] and the system sends to their number automatically. Do NOT ask for their number.]"
+    history.append({"role": "user", "content": user_text + search_context + caller_context})
     if len(history) > 20:
         history = history[-20:]
         conversations[caller_id] = history
@@ -166,7 +168,7 @@ def home():
 
 @app.route("/health")
 def health():
-    return {"status": "alive", "version": "1.9", "service": "GPTitta Voice Bot", "brain": "GPT-4o-mini", "search": "Tavily" if TAVILY_API_KEY else "off", "sms": "Twilio" if twilio_client else "off", "email": "SendGrid" if SENDGRID_API_KEY else "SMS-fallback", "phone": "+1 855 789 3570"}
+    return {"status": "alive", "version": "1.9.1", "service": "GPTitta Voice Bot", "brain": "GPT-4o-mini", "search": "Tavily" if TAVILY_API_KEY else "off", "sms": "Twilio" if twilio_client else "off", "email": "SendGrid" if SENDGRID_API_KEY else "SMS-fallback", "phone": "+1 855 789 3570"}
 
 @app.route("/voice/incoming", methods=["POST"])
 def voice_incoming():
